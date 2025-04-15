@@ -61,9 +61,13 @@ SCORER_DICT = {
 
 PRESS_DICT = {
     "criti_adasnapkv": CriticalAdaKVPress(SnapKVPress()),
-    "criti_ada_expected_attention": CriticalAdaKVPress(ExpectedAttentionPress(use_vnorm=False)),
+    "criti_ada_expected_attention": CriticalAdaKVPress(
+        ExpectedAttentionPress(use_vnorm=False)
+    ),
     "criti_snapkv": CriticalKVPress(SnapKVPress()),
-    "criti_expected_attention": CriticalKVPress(ExpectedAttentionPress(use_vnorm=False)),
+    "criti_expected_attention": CriticalKVPress(
+        ExpectedAttentionPress(use_vnorm=False)
+    ),
     "adasnapkv": AdaKVPress(SnapKVPress()),
     "ada_expected_attention": AdaKVPress(ExpectedAttentionPress()),
     "expected_attention": ExpectedAttentionPress(),
@@ -76,7 +80,6 @@ PRESS_DICT = {
     "think": ThinKPress(),
     "tova": TOVAPress(),
     "duo_attention": DuoAttentionPress(),
-    "duo_attention_on_the_fly": DuoAttentionPress(on_the_fly_scoring=True),
     "chunkkv": ChunkKVPress(press=SnapKVPress(), chunk_length=20),
     "qfilter": QFilterPress(),
     "snap_think": ComposedPress([SnapKVPress(), ThinKPress()]),
@@ -95,6 +98,7 @@ def evaluate(
     max_context_length: Optional[int] = None,
     compress_questions: bool = False,
     key_channel_compression_ratio: float = 0.5,
+    quanto_bits: Optional[int] = None,
 ):
     """
     Evaluate a model on a dataset using a press and save the results
@@ -123,6 +127,8 @@ def evaluate(
         Whether to compress the questions as well, by default False
     key_channel_compression_ratio : float, optional
         key Channel Compression ratio for the channel press, by default 0.5
+    quanto_bits: int, optional
+        Number of bits to use for quantization. By default, no quantization.
     """
 
     assert dataset in DATASET_DICT, f"No dataset found for {dataset}"
@@ -135,27 +141,43 @@ def evaluate(
     save_dir = Path(__file__).parent / "results"
     save_dir.mkdir(exist_ok=True)
     save_filename = save_dir / (
-        "__".join([dataset, data_dir if data_dir else "", model.replace("/", "--"), press_name, str(compression_ratio)])
+        "__".join(
+            [
+                dataset,
+                data_dir if data_dir else "",
+                model.replace("/", "--"),
+                press_name,
+                str(compression_ratio),
+            ]
+        )
         + ".csv"
     )
     if save_filename.exists():
         logger.warning(f"Results already exist at {save_filename}")
 
     # Load dataframe
-    df = load_dataset(DATASET_DICT[dataset], data_dir=data_dir, split="test").to_pandas()
+    df = load_dataset(
+        DATASET_DICT[dataset], data_dir=data_dir, split="test"
+    ).to_pandas()
     if fraction < 1.0:
         df = df.sample(frac=fraction, random_state=42)
-        save_filename = save_filename.with_name(save_filename.stem + f"__fraction{fraction:.2f}" + save_filename.suffix)
+        save_filename = save_filename.with_name(
+            save_filename.stem + f"__fraction{fraction:.2f}" + save_filename.suffix
+        )
 
     if max_context_length is not None:
         save_filename = save_filename.with_name(
-            save_filename.stem + f"__max_context{max_context_length}" + save_filename.suffix
+            save_filename.stem
+            + f"__max_context{max_context_length}"
+            + save_filename.suffix
         )
 
     if compress_questions:
         df["context"] = df["context"] + df["question"]
         df["question"] = ""
-        save_filename = save_filename.with_name(save_filename.stem + "__compressed_questions" + save_filename.suffix)
+        save_filename = save_filename.with_name(
+            save_filename.stem + "__compressed_questions" + save_filename.suffix
+        )
 
     # Load press
     assert press_name in PRESS_DICT
@@ -168,14 +190,18 @@ def evaluate(
             if isinstance(ps, (ThinKPress)):
                 ps.key_channel_compression_ratio = key_channel_compression_ratio
                 save_filename = save_filename.with_name(
-                    save_filename.stem + f"__channel{key_channel_compression_ratio}" + save_filename.suffix
+                    save_filename.stem
+                    + f"__channel{key_channel_compression_ratio}"
+                    + save_filename.suffix
                 )
             else:
                 ps.compression_ratio = compression_ratio  # type:ignore[attr-defined]
     elif isinstance(press, (ThinKPress)):
         press.key_channel_compression_ratio = key_channel_compression_ratio
         save_filename = save_filename.with_name(
-            save_filename.stem + f"__channel{key_channel_compression_ratio}" + save_filename.suffix
+            save_filename.stem
+            + f"__channel{key_channel_compression_ratio}"
+            + save_filename.suffix
         )
     else:
         press.compression_ratio = compression_ratio  # type:ignore[attr-defined]
@@ -193,17 +219,39 @@ def evaluate(
             pass
 
     if device == "auto":
-        pipe = pipeline("kv-press-text-generation", model=model, device_map="auto", model_kwargs=model_kwargs)
+        pipe = pipeline(
+            "kv-press-text-generation",
+            model=model,
+            device_map="auto",
+            model_kwargs=model_kwargs,
+        )
     else:
-        pipe = pipeline("kv-press-text-generation", model=model, device=device, model_kwargs=model_kwargs)
+        pipe = pipeline(
+            "kv-press-text-generation",
+            model=model,
+            device=device,
+            model_kwargs=model_kwargs,
+        )
     # Run pipeline on each context
     df["predicted_answer"] = None
     df_context = df.groupby("context")
     assert all(df_context["answer_prefix"].nunique() == 1)
 
+    if quanto_bits is not None:
+        from transformers import QuantizedCacheConfig, QuantoQuantizedCache
+
+        config = QuantizedCacheConfig(nbits=quanto_bits)
+        cache = QuantoQuantizedCache(config)
+    else:
+        cache = None
+
     for context, df_ in tqdm(df_context, total=df["context"].nunique()):
         questions = df_["question"].to_list()
-        max_new_tokens_ = max_new_tokens if max_new_tokens is not None else df_["max_new_tokens"].iloc[0]
+        max_new_tokens_ = (
+            max_new_tokens
+            if max_new_tokens is not None
+            else df_["max_new_tokens"].iloc[0]
+        )
         answer_prefix = df_["answer_prefix"].iloc[0]
         output = pipe(
             context,
@@ -212,13 +260,16 @@ def evaluate(
             press=press,
             max_new_tokens=max_new_tokens_,
             max_context_length=max_context_length,
+            cache=cache,
         )
         df.loc[df_.index, "predicted_answer"] = output["answers"]
         df.loc[df_.index, "compression_ratio"] = press.compression_ratio  # type:ignore[attr-defined]
         torch.cuda.empty_cache()
 
     # Save answers
-    df[["predicted_answer", "compression_ratio"]].to_csv(str(save_filename), index=False)
+    df[["predicted_answer", "compression_ratio"]].to_csv(
+        str(save_filename), index=False
+    )
 
     # Calculate metrics
     scorer = SCORER_DICT[dataset]

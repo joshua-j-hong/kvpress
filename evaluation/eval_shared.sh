@@ -19,18 +19,11 @@ PRESS=observed_attention_press
 
 run() {
   echo "Evaluating press $PRESS with compression ratio $1 and $2-bit quantization"
-  python3 evaluate.py --device auto --dataset $DATASET --data_dir $DATA_DIR \
+  python3 evaluate.py --device "cuda:0" --dataset $DATASET --data_dir $DATA_DIR \
     --model $MODEL \
-    --press $PRESS --compression_ratio $1 --quanto_bits $2 &
+    --press $PRESS --compression_ratio $1 --quanto_bits $2 \
+    > "results/$PRESS-$1-$2-stdout.log" \
+    2> "results/$PRESS-$1-$2-stdout.log"&
 }
 
-run 0.0 16
-run 0.5 16
-run 0.6 16
-run 0.75 16
-run 0.8 16
-run 0.85 16
-run 0.875 16
-run 0.9 16
-run 0.0 8
-
+run 0.5 8

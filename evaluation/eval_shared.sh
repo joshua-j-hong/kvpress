@@ -46,3 +46,5 @@ run() {
 mkdir -p results
 
 run 0.5 8
+
+wait

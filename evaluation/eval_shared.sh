@@ -40,7 +40,7 @@ run() {
     --press $PRESS \
     --compression_ratio $1 \
     --quanto_bits $2 \
-    --save_dir $RESULTS_ROOT > $STDOUT > $STDERR &
+    --save_path $RESULTS_ROOT > $STDOUT > $STDERR &
 }
 
 mkdir -p results

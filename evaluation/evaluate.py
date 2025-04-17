@@ -99,7 +99,7 @@ def evaluate(
     compress_questions: bool = False,
     key_channel_compression_ratio: float = 0.5,
     quanto_bits: Optional[int] = None,
-    save_dir: Optional[str] = None,
+    save_path: Optional[str] = None,
 ):
     """
     Evaluate a model on a dataset using a press and save the results
@@ -139,8 +139,11 @@ def evaluate(
     if device is None:
         device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
-    if save_dir is None:
+    if save_path is None:
         save_dir = Path(__file__).parent / "results"
+    else:
+        save_dir = Path(save_path)
+
     save_dir.mkdir(exist_ok=True)
     save_filename = save_dir / (
         "__".join(

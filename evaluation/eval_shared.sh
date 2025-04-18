@@ -27,24 +27,26 @@ echo "Using HF_HOME=$HF_HOME"
 mkdir -p $RESULTS_ROOT
 
 run() {
-  echo "Evaluating press $PRESS with compression ratio $1 and $2-bit quantization"
+  QFLAGS=${2:+--quanto_bits $2}
+  QS=${2:+q$2}
 
-  STDOUT="$RESULTS_ROOT/$PRESS-$1-$2-stdout.log"
-  STDERR="$RESULTS_ROOT/$PRESS-$1-$2-stdout.log"
+  echo "Evaluating press $PRESS with compression ratio $1 ${2:+$2-bit quantization}"
+
+  STDOUT="$RESULTS_ROOT/$PRESS-$1-$QS-stdout.log"
+  STDERR="$RESULTS_ROOT/$PRESS-$1-$QS-stdout.log"
 
   echo "Piping output to $STDOUT and $STDERR"
-
 
   python3 evaluate.py --device "cuda:0" --dataset $DATASET --data_dir $DATA_DIR \
     --model $MODEL \
     --press $PRESS \
     --compression_ratio $1 \
-    --quanto_bits $2 \
+    $QFLAGS \
     --save_path $RESULTS_ROOT > $STDOUT > $STDERR &
 }
 
 mkdir -p results
 
-run 0.5 8
+run 0.5
 
 wait

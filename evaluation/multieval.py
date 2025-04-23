@@ -18,14 +18,9 @@ global_settings = {
 }
 
 jobs = [
-    {"compression_ratio": 0.5},
-    {"compression_ratio": 0.0, "quantization": 8},
-    {"compression_ratio": 0.6},
-    {"compression_ratio": 0.2, "quantization": 8},
-    {"compression_ratio": 0.7},
-    {"compression_ratio": 0.4, "quantization": 8},
-    {"compression_ratio": 0.75},
-    {"compression_ratio": 0.5, "quantization": 8},
+    {"compression_ratio": 0.1},
+    {"compression_ratio": 0.25},
+    {"compression_ratio": 0.5, "quanto_bits": 4},
 ]
 
 

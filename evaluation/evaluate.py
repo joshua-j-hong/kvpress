@@ -142,7 +142,7 @@ def evaluate(
     if save_path is None:
         save_dir = Path(__file__).parent / "results"
     else:
-        save_dir = Path(save_path)
+        save_dir = Path(save_dir)
 
     save_dir.mkdir(exist_ok=True)
     save_filename = save_dir / (
@@ -245,10 +245,17 @@ def evaluate(
     if quanto_bits is not None:
         from transformers import QuantizedCacheConfig, QuantoQuantizedCache
 
-        config = QuantizedCacheConfig(nbits=quanto_bits)
+        config = QuantizedCacheConfig(
+            nbits=quanto_bits, device=device, compute_dtype=torch.bfloat16
+        )
         cache = QuantoQuantizedCache(config)
+        save_filename = save_filename.with_name(
+            save_filename.stem + f"__quanto{quanto_bits}" + save_filename.suffix
+        )
     else:
         cache = None
+
+    print("Save file:", save_filename)
 
     for context, df_ in tqdm(df_context, total=df["context"].nunique()):
         questions = df_["question"].to_list()

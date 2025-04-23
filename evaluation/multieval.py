@@ -2,6 +2,7 @@ import subprocess
 import torch
 import torch.multiprocessing as mp
 import datasets
+import resource
 from huggingface_hub import snapshot_download
 from evaluate import DATASET_DICT
 
@@ -28,21 +29,26 @@ jobs = [
 ]
 
 
-def worker_eval(queue, eval_args):
-    device = queue.get()
-    assert "press_name" in eval_args
+def worker_main(device_id, queue):
+    device = f"cuda:{device_id}"
 
-    eval_args["device"] = device
+    while not queue.empty():
+        eval_args = queue.get()
+        assert "press_name" in eval_args
+        eval_args["device"] = device
+        args = ["python", "eval.py"]
 
-    args = ["python", "evaluate.py"]
-    for key, value in eval_args.items():
-        args.append(f"--{key}={str(value)}")
+        for key, value in eval_args.items():
+            args.append(f"--{key}={str(value)}")
 
-    print("Executing:", *args)
+        print("Executing:", *args)
 
-    retval = subprocess.run(args)
-    print(retval)
-    queue.put(device)
+        usage_start = resource.getrusage(resource.RUSAGE_CHILDREN)
+        retval = subprocess.run(args)
+        usage_end = resource.getrusage(resource.RUSAGE_CHILDREN)
+
+        print(retval, f"{device}: took {usage_end.ru_utime - usage_start.ru_utime}")
+        queue.task_done()
 
 
 def setup():
@@ -54,21 +60,17 @@ def setup():
 
 def main():
     manager = mp.Manager()
-    gpus = torch.cuda.device_count()
-    q = manager.Queue(maxsize=gpus)
-    for i in range(gpus):
-        q.put(f"cuda:{i}")
+    queue = manager.Queue()
 
-    processes = []
     for job in jobs:
-        p = mp.Process(target=worker_eval, args=(q, dict(**global_settings, **job)))
-        p.start()
-        processes.append(p)
+        queue.put(dict(**global_settings, **job))
 
-    for p in processes:
-        p.join()
+    for i in range(torch.cuda.device_count()):
+        p = mp.Process(target=worker_main, args=(i, queue))
+        p.start()
+
+    queue.join()
 
 
 if __name__ == "__main__":
     main()
-

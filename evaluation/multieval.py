@@ -36,7 +36,7 @@ def worker_main(device_id, queue):
         eval_args = queue.get()
         assert "press_name" in eval_args
         eval_args["device"] = device
-        args = ["python", "eval.py"]
+        args = ["python", "evaluate.py"]
 
         for key, value in eval_args.items():
             args.append(f"--{key}={str(value)}")

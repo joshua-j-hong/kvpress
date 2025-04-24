@@ -99,6 +99,7 @@ def evaluate(
     max_context_length: Optional[int] = None,
     compress_questions: bool = False,
     key_channel_compression_ratio: float = 0.5,
+    quanto_bits: Optional[int] = None,
 ):
     """
     Evaluate a model on a dataset using a press and save the results
@@ -127,6 +128,8 @@ def evaluate(
         Whether to compress the questions as well, by default False
     key_channel_compression_ratio : float, optional
         key Channel Compression ratio for the channel press, by default 0.5
+    quanto_bits: int, optional
+        Number of bits to use for quantization. By default, no quantization.
     """
 
     assert dataset in DATASET_DICT, f"No dataset found for {dataset}"
@@ -209,6 +212,19 @@ def evaluate(
     df_context = df.groupby("context")
     assert all(df_context["answer_prefix"].nunique() == 1)
 
+    if quanto_bits is not None:
+        from transformers import QuantizedCacheConfig, QuantoQuantizedCache
+
+        config = QuantizedCacheConfig(
+            nbits=quanto_bits, device=device, compute_dtype=torch.bfloat16
+        )
+        cache = QuantoQuantizedCache(config)
+        save_filename = save_filename.with_name(
+            save_filename.stem + f"__quanto{quanto_bits}" + save_filename.suffix
+        )
+    else:
+        cache = None
+
     for context, df_ in tqdm(df_context, total=df["context"].nunique()):
         questions = df_["question"].to_list()
         max_new_tokens_ = max_new_tokens if max_new_tokens is not None else df_["max_new_tokens"].iloc[0]
@@ -220,6 +236,7 @@ def evaluate(
             press=press,
             max_new_tokens=max_new_tokens_,
             max_context_length=max_context_length,
+            cache=cache,
         )
         df.loc[df_.index, "predicted_answer"] = output["answers"]
         df.loc[df_.index, "compression_ratio"] = press.compression_ratio  # type:ignore[attr-defined]

@@ -39,6 +39,11 @@ from kvpress import (
     FinchPress,
 )
 
+import os
+
+# reduce compilation time on H100
+os.environ["TORCH_CUDA_ARCH_LIST"] = "9.0"
+
 logger = logging.getLogger(__name__)
 
 DATASET_DICT = {

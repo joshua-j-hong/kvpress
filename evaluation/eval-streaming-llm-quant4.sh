@@ -6,6 +6,9 @@ compression_ratios=(0.1 0.25 0.5 0.75)
 quanto_bits=4
 press_names=("streaming_llm")
 
+source $HOME/.zshrc
+cd /ocean/projects/cis240042p/hhirairi/kvpress/evaluation/
+
 # Check if the number of press names is less than or equal to the number of available GPUs
 num_gpus=$(nvidia-smi --list-gpus | wc -l)
 if [ ${#press_names[@]} -gt $num_gpus ]; then

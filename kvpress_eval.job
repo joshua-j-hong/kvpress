@@ -6,6 +6,7 @@
 #SBATCH -t 02:00:00                     # Wall‑clock limit HH:MM:SS
 #SBATCH -o kvpress_eval_%j.out          # Stdout/err go here
 
+source $HOME/.zshrc
 
 set -euo pipefail                       # Safe‑bash options (optional, but recommended)
 echo "Job started on $(hostname) at $(date)"
@@ -14,7 +15,6 @@ echo "Job started on $(hostname) at $(date)"
 # module load cuda/12.3
 # source ~/.bashrc
 # conda activate kvpress
-source $HOME/.zshrc
 
 # Go to your evaluation directory and launch the script
 cd /ocean/projects/cis240042p/hhirairi/kvpress/evaluation/

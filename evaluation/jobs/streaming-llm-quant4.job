@@ -1,0 +1,21 @@
+#!/bin/zsh
+#SBATCH -J hzh_kvpress_eval             # Job name (anything you like)
+#SBATCH -p GPU-shared                   # Same partition you use interactively
+#SBATCH --gres=gpu:h100-80:1            # 1× H100‑80
+#SBATCH --ntasks-per-node=4             # 4 CPU cores → 8 GB RAM (2 GB/core) – tweak if needed
+#SBATCH -t 08:00:00                     # Wall‑clock limit HH:MM:SS
+#SBATCH -o kvpress_eval_%j.out          # Stdout/err go here
+
+# set -euo pipefail                       # Safe‑bash options (optional, but recommended)
+echo "Job started on $(hostname) at $(date)"
+
+# ‑‑‑ (optional) load modules / activate conda env ‑‑‑
+# module load cuda/12.3
+# source ~/.bashrc
+# conda activate kvpress
+
+# Go to your evaluation directory and launch the script
+cd /ocean/projects/cis240042p/hhirairi/kvpress/evaluation/
+bash eval-streaming-llm-quant4.sh
+
+echo "Job finished at $(date)"

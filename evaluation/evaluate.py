@@ -84,6 +84,8 @@ PRESS_DICT = {
     "snap_think": ComposedPress([SnapKVPress(), ThinKPress()]),
     "pyramidkv": PyramidKVPress(),
     "finch": FinchPress(),
+    "duo_attention_think": ComposedPress([DuoAttentionPress(), ThinKPress()]),
+    "streaming_llm_think": ComposedPress([StreamingLLMPress(), ThinKPress()]),
 }
 
 
@@ -169,6 +171,8 @@ def evaluate(
                 save_filename = save_filename.with_name(
                     save_filename.stem + f"__channel{key_channel_compression_ratio}" + save_filename.suffix
                 )
+            elif isinstance(ps, (DuoAttentionPress)):
+                ps.head_compression_ratio = compression_ratio
             else:
                 ps.compression_ratio = compression_ratio  # type:ignore[attr-defined]
     elif isinstance(press, (ThinKPress)):

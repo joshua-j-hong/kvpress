@@ -72,16 +72,24 @@ class KVPressTextGenerationPipeline(Pipeline):
 
         answer_prefix = answer_prefix or ""
         postprocess_kwargs = {"single_question": questions is None}
-        assert question is None or questions is None, "Either question or questions should be provided, not both."
+        assert question is None or questions is None, (
+            "Either question or questions should be provided, not both."
+        )
         questions = questions or ([question] if question else [""])
         if max_context_length is None:
-            max_context_length = min(self.tokenizer.model_max_length, int(1e10))  # 1e10 to avoid overflow
+            max_context_length = min(
+                self.tokenizer.model_max_length, int(1e10)
+            )  # 1e10 to avoid overflow
         preprocess_kwargs = {
             "questions": questions,
             "answer_prefix": answer_prefix,
             "max_context_length": max_context_length,
         }
-        forward_kwargs = {"press": press, "max_new_tokens": max_new_tokens, "cache": cache}
+        forward_kwargs = {
+            "press": press,
+            "max_new_tokens": max_new_tokens,
+            "cache": cache,
+        }
         return preprocess_kwargs, forward_kwargs, postprocess_kwargs
 
     def preprocess(
@@ -109,18 +117,27 @@ class KVPressTextGenerationPipeline(Pipeline):
         else:
             separator = "\n" + "#" * len(context)
             context = self.tokenizer.apply_chat_template(
-                [{"role": "user", "content": context + separator}], add_generation_prompt=True, tokenize=False
+                [{"role": "user", "content": context + separator}],
+                add_generation_prompt=True,
+                tokenize=False,
             )
             context, question_suffix = context.split(separator)
 
         # Add question_suffix and answer prefix
         # e.g. for llama3.1, question_suffix="<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n")
-        questions = [question + question_suffix + answer_prefix for question in questions]
+        questions = [
+            question + question_suffix + answer_prefix for question in questions
+        ]
 
         # Tokenize the context and questions
-        context_ids = self.tokenizer.encode(context, return_tensors="pt", add_special_tokens=False)
+        context_ids = self.tokenizer.encode(
+            context, return_tensors="pt", add_special_tokens=False
+        )
         question_ids = [
-            self.tokenizer.encode(question, return_tensors="pt", add_special_tokens=False) for question in questions
+            self.tokenizer.encode(
+                question, return_tensors="pt", add_special_tokens=False
+            )
+            for question in questions
         ]
 
         # Truncate context
@@ -186,7 +203,11 @@ class KVPressTextGenerationPipeline(Pipeline):
             answer = self.generate_answer(
                 question_ids=question_ids.to(self.model.device),
                 cache=cache,
-                context_length=context_length,
+                context_length=(
+                    cache.get_seq_length()
+                    if isinstance(press, KeyRerotationPress)
+                    else context_length
+                ),
                 max_new_tokens=max_new_tokens,
             )
             answers.append(answer)
@@ -196,9 +217,9 @@ class KVPressTextGenerationPipeline(Pipeline):
     def output_attentions(self, press: BasePress):
         if isinstance(press, ObservedAttentionPress):
             return True
-        if isinstance(press, (KeyRerotationPress, PerLayerCompressionPress)) and isinstance(
-            press.press, ObservedAttentionPress
-        ):
+        if isinstance(
+            press, (KeyRerotationPress, PerLayerCompressionPress)
+        ) and isinstance(press.press, ObservedAttentionPress):
             return True
         return False
 
@@ -208,7 +229,11 @@ class KVPressTextGenerationPipeline(Pipeline):
         return {"answers": model_outputs}
 
     def generate_answer(
-        self, question_ids: torch.Tensor, cache: Cache, context_length: int, max_new_tokens: int
+        self,
+        question_ids: torch.Tensor,
+        cache: Cache,
+        context_length: int,
+        max_new_tokens: int,
     ) -> str:
         """
         Generate an answer to a question using greedy decoding.
@@ -230,9 +255,13 @@ class KVPressTextGenerationPipeline(Pipeline):
             The generated answer.
         """
 
-        cache_seq_lengths = [cache.get_seq_length(layer_idx) for layer_idx in range(len(cache))]
+        cache_seq_lengths = [
+            cache.get_seq_length(layer_idx) for layer_idx in range(len(cache))
+        ]
         position_ids = torch.arange(
-            context_length, context_length + question_ids.shape[1], device=self.model.device
+            context_length,
+            context_length + question_ids.shape[1],
+            device=self.model.device,
         ).unsqueeze(0)
 
         # if the user doesn't provide a question, skip forward pass
@@ -260,7 +289,9 @@ class KVPressTextGenerationPipeline(Pipeline):
             generated_ids.append(new_id)
             if new_id.item() in should_stop_token_ids:
                 break
-        answer = self.tokenizer.decode(torch.stack(generated_ids), skip_special_tokens=True)
+        answer = self.tokenizer.decode(
+            torch.stack(generated_ids), skip_special_tokens=True
+        )
 
         # Remove the generated tokens from the cache
         cache.key_cache = [
@@ -272,12 +303,21 @@ class KVPressTextGenerationPipeline(Pipeline):
             for layer_idx, sequence_length in enumerate(cache_seq_lengths)
         ]
         if hasattr(cache, "_quantized_key_cache"):
+
+            def prune(layer_cache, sequence_length):
+                if isinstance(layer_cache, tuple):
+                    return (layer_cache[0][..., :sequence_length], layer_cache[1])
+                elif isinstance(layer_cache, torch.Tensor):
+                    return layer_cache[..., :sequence_length]
+                else:
+                    raise NotImplementedError(f"Not supported: {type(layer_cache)}")
+
             cache._quantized_key_cache = [
-                cache._quantized_key_cache[layer_idx][:, :, :sequence_length]
+                prune(cache._quantized_key_cache[layer_idx], sequence_length)
                 for layer_idx, sequence_length in enumerate(cache_seq_lengths)
             ]
             cache._quantized_value_cache = [
-                cache._quantized_value_cache[layer_idx][:, :, :sequence_length]
+                prune(cache._quantized_value_cache[layer_idx], sequence_length)
                 for layer_idx, sequence_length in enumerate(cache_seq_lengths)
             ]
 

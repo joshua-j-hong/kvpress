@@ -25,3 +25,10 @@ class ComposedPress(BasePress):
             output = press.forward_hook(module, input, kwargs, output)
             self.compression_ratio *= press.compression_ratio  # type: ignore
         return output
+
+    @contextmanager
+    def __call__(self, model):
+        for press in presses:
+            press.__call__(model)
+        with super().__call__(model):
+            yield

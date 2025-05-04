@@ -68,9 +68,13 @@ SCORER_DICT = {
 
 PRESS_DICT = {
     "criti_adasnapkv": CriticalAdaKVPress(SnapKVPress()),
-    "criti_ada_expected_attention": CriticalAdaKVPress(ExpectedAttentionPress(use_vnorm=False)),
+    "criti_ada_expected_attention": CriticalAdaKVPress(
+        ExpectedAttentionPress(use_vnorm=False)
+    ),
     "criti_snapkv": CriticalKVPress(SnapKVPress()),
-    "criti_expected_attention": CriticalKVPress(ExpectedAttentionPress(use_vnorm=False)),
+    "criti_expected_attention": CriticalKVPress(
+        ExpectedAttentionPress(use_vnorm=False)
+    ),
     "adasnapkv": AdaKVPress(SnapKVPress()),
     "ada_expected_attention": AdaKVPress(ExpectedAttentionPress()),
     "expected_attention": ExpectedAttentionPress(),
@@ -83,12 +87,13 @@ PRESS_DICT = {
     "think": ThinKPress(),
     "tova": TOVAPress(),
     "duo_attention": DuoAttentionPress(),
-    "duo_attention_on_the_fly": DuoAttentionPress(on_the_fly_scoring=True),
     "chunkkv": ChunkKVPress(press=SnapKVPress(), chunk_length=20),
     "qfilter": QFilterPress(),
     "snap_think": ComposedPress([SnapKVPress(), ThinKPress()]),
     "pyramidkv": PyramidKVPress(),
     "finch": FinchPress(),
+    "duo_attention_think": ComposedPress([DuoAttentionPress(), ThinKPress()]),
+    "streaming_llm_think": ComposedPress([StreamingLLMPress(), ThinKPress()]),
 }
 
 
@@ -105,6 +110,7 @@ def evaluate(
     compress_questions: bool = False,
     key_channel_compression_ratio: float = 0.5,
     quanto_bits: Optional[int] = None,
+    save_path: Optional[str] = None,
 ):
     """
     Evaluate a model on a dataset using a press and save the results
@@ -144,24 +150,49 @@ def evaluate(
     if device is None:
         device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
-    save_dir = Path(__file__).parent / "results"
+    if save_path is None:
+        save_dir = Path(__file__).parent / "results"
+    else:
+        save_dir = Path(save_dir)
+
     save_dir.mkdir(exist_ok=True)
     save_filename = save_dir / (
-        "__".join([dataset, data_dir if data_dir else "", model.replace("/", "--"), press_name, str(compression_ratio)])
+        "__".join(
+            [
+                dataset,
+                data_dir if data_dir else "",
+                model.replace("/", "--"),
+                press_name,
+                str(compression_ratio),
+            ]
+        )
         + ".csv"
     )
     if save_filename.exists():
         logger.warning(f"Results already exist at {save_filename}")
 
     # Load dataframe
-    df = load_dataset(DATASET_DICT[dataset], data_dir=data_dir, split="test").to_pandas()
+    df = load_dataset(
+        DATASET_DICT[dataset], data_dir=data_dir, split="test"
+    ).to_pandas()
     if fraction < 1.0:
         df = df.sample(frac=fraction, random_state=42)
-        save_filename = save_filename.with_name(save_filename.stem + f"__fraction{fraction:.2f}" + save_filename.suffix)
+        save_filename = save_filename.with_name(
+            save_filename.stem + f"__fraction{fraction:.2f}" + save_filename.suffix
+        )
 
     if max_context_length is not None:
         save_filename = save_filename.with_name(
-            save_filename.stem + f"__max_context{max_context_length}" + save_filename.suffix
+            save_filename.stem
+            + f"__max_context{max_context_length}"
+            + save_filename.suffix
+        )
+
+    if compress_questions:
+        df["context"] = df["context"] + df["question"]
+        df["question"] = ""
+        save_filename = save_filename.with_name(
+            save_filename.stem + "__compressed_questions" + save_filename.suffix
         )
 
     # Load press
@@ -175,14 +206,20 @@ def evaluate(
             if isinstance(ps, (ThinKPress)):
                 ps.key_channel_compression_ratio = key_channel_compression_ratio
                 save_filename = save_filename.with_name(
-                    save_filename.stem + f"__channel{key_channel_compression_ratio}" + save_filename.suffix
+                    save_filename.stem
+                    + f"__channel{key_channel_compression_ratio}"
+                    + save_filename.suffix
                 )
+            elif isinstance(ps, (DuoAttentionPress)):
+                ps.head_compression_ratio = compression_ratio
             else:
                 ps.compression_ratio = compression_ratio  # type:ignore[attr-defined]
     elif isinstance(press, (ThinKPress)):
         press.key_channel_compression_ratio = key_channel_compression_ratio
         save_filename = save_filename.with_name(
-            save_filename.stem + f"__channel{key_channel_compression_ratio}" + save_filename.suffix
+            save_filename.stem
+            + f"__channel{key_channel_compression_ratio}"
+            + save_filename.suffix
         )
     else:
         press.compression_ratio = compression_ratio  # type:ignore[attr-defined]
@@ -200,10 +237,19 @@ def evaluate(
             pass
 
     if device == "auto":
-        pipe = pipeline("kv-press-text-generation", model=model, device_map="auto", model_kwargs=model_kwargs)
+        pipe = pipeline(
+            "kv-press-text-generation",
+            model=model,
+            device_map="auto",
+            model_kwargs=model_kwargs,
+        )
     else:
-        pipe = pipeline("kv-press-text-generation", model=model, device=device, model_kwargs=model_kwargs)
-
+        pipe = pipeline(
+            "kv-press-text-generation",
+            model=model,
+            device=device,
+            model_kwargs=model_kwargs,
+        )
     if isinstance(press, FinchPress):
         df["context"] = df["context"] + pipe.tokenizer.bos_token
 
@@ -230,9 +276,15 @@ def evaluate(
     else:
         cache = None
 
+    print("Save file:", save_filename)
+
     for context, df_ in tqdm(df_context, total=df["context"].nunique()):
         questions = df_["question"].to_list()
-        max_new_tokens_ = max_new_tokens if max_new_tokens is not None else df_["max_new_tokens"].iloc[0]
+        max_new_tokens_ = (
+            max_new_tokens
+            if max_new_tokens is not None
+            else df_["max_new_tokens"].iloc[0]
+        )
         answer_prefix = df_["answer_prefix"].iloc[0]
         output = pipe(
             context,
@@ -248,7 +300,9 @@ def evaluate(
         torch.cuda.empty_cache()
 
     # Save answers
-    df[["predicted_answer", "compression_ratio"]].to_csv(str(save_filename), index=False)
+    df[["predicted_answer", "compression_ratio"]].to_csv(
+        str(save_filename), index=False
+    )
 
     # Calculate metrics
     scorer = SCORER_DICT[dataset]
